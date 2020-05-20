@@ -1,79 +1,96 @@
-require 'sqlite3'
+require 'pg'
 require_relative 'db_connection'
 
 class Job
-    attr_accessor :id, :title, :company_id, :summary, :indeed_apply, :applied
+    attr_accessor :id, :title, :company_id, :location, :description, :indeed_resume, :applied
 
     def self.all 
         data = DBConnection.instance.execute("SELECT * FROM jobs")
         data.map {|datum| Job.new(datum)}
     end
 
+    def self.count_num
+        DBConnection.instance.execute("SELECT COUNT(*) FROM jobs")
+    end
+
     def self.find_by_id(id)
-        job = DBConnection.instance.execute(<<-SQL, id)
+        job = DBConnection.instance.execute(<<-SQL)
             SELECT 
                 *
             FROM
                 jobs
             WHERE
-                id = ?
+                id = id
         SQL
-        return nil unless job.length > 0
+        return nil unless job.ntuples > 0
         Job.new(job.first)
     end
 
-    def self.find_by_title(title, num)
-        jobs = DBConnection.instance.execute(<<-SQL, title, num)
+    def self.find_by_title(title, num = 1)
+        jobs = DBConnection.instance.execute(<<-SQL)
             SELECT
                 *
             FROM
                 jobs
             WHERE
-                title = ?
-            LIMIT(?)
+                title = title
+            LIMIT(num)
         SQL
-        return nil unless jobs.length > 0
+        return nil unless jobs.ntuples > 0
         jobs.map{|job| Job.new(job)}
     end
 
     def self.find_by_company(company_id)
-        jobs = DBConnection.instance.execute(<<-SQL, company_id)
+        jobs = DBConnection.instance.execute(<<-SQL)
             SELECT
                 *
             FROM
                 jobs
             WHERE
-                company_id = ?
+                company_id = company_id
         SQL
-        return nil unless jobs.length > 0
+        return nil unless jobs.ntuples > 0
         jobs.map{|job| Job.new(job)}
     end
 
-    def self.find_applied(state = true, num)
-        jobs = DBConnection.instance.execute(<<-SQL, state, num)
+    def self.find_by_company_and_title(company_id, title)
+        jobs = DBConnection.instance.execute(<<-SQL)
             SELECT
                 *
             FROM
                 jobs
             WHERE
-                applied = ?
-            LIMIT(?)
+                company_id = company_id AND title = title
         SQL
-        return nil unless jobs.length > 0
+        return nil unless jobs.ntuples > 0
+        Job.new(jobs.first)
+    end
+
+    def self.find_applied(state = 1, num = 1)
+        jobs = DBConnection.instance.execute(<<-SQL)
+            SELECT
+                *
+            FROM
+                jobs
+            WHERE
+                applied = state
+            LIMIT(num)
+        SQL
+        return nil unless jobs.ntuples > 0
         jobs.map{|job| Job.new(job)}
     end
 
-    def self.find_by_apply_method(indeed = true, num)
-        jobs = DBConnection.instance.execute(<<-SQL, indeed, num)
+    def self.find_by_apply_method(indeed_resume = 1, num = 1)
+        jobs = DBConnection.instance.execute(<<-SQL)
             SELECT
                 *
             FROM
                 jobs
             WHERE
-                indeed_apply = ?
-            LIMIT(?)
+                indeed_resume = indeed_resume
+            LIMIT(num)
         SQL
-        return nil unless jobs.length > 0
+        return nil unless jobs.ntuples > 0
         jobs.map{|job| Job.new(job)}
     end
 
@@ -81,30 +98,43 @@ class Job
         @id = options['id']
         @title = options['title']
         @company_id = options['company_id']
-        @summary = options['summary']
-        @indeed_apply = options['indeed_apply']
-        @applied = options['applied'] || false
+        @location = options['location']
+        @description = options['description']
+        @indeed_resume = options['indeed_resume']
+        @applied = options['applied'] || 0
     end
 
-    def insert 
+    def save
         raise "#{self} already in database" if self.id
-        DBConnection.instance.execute(<<-SQL, self.title, self.company_id, self.summary, self.indeed_resume, self.applied)
+        DBConnection.instance.execute(<<-SQL)
             INSERT INTO
-                jobs(title, company_id, summary, indeed_resume, applied)
+                jobs(title, company_id, location, description, indeed_resume, applied)
             VALUES
-                (?, ?, ?, ?, ?)
+                (self.title, self.company_id, self.location, self.description, self.indeed_resume, self.applied)
         SQL
     end
 
     def update
         raise "#{self} not in database" unless self.id
-        DBConnection.instance.execute(<<-SQL, self.title, self.company_id, self.summary, self.indeed_resume, self.applied, self.id)
+        DBConnection.instance.execute(<<-SQL)
             UPDATE
                 jobs
             SET
-                title = ?, company = ?, loc = ?, summary = ?, link = ?, apply_link = ?, indeed_resume = ?, applied = ?)
+                title = self.title, company_id = self.company_id, location = self.location, description = self.description, indeed_resume = self.indeed_resume, applied = self.applied
             WHERE
-                id = ?
+                id = self.id
+        SQL
+    end
+
+    def delete 
+        raise "#{self} not in database" unless self.id 
+        link = Link.find_by_job_id(self.id)
+        link.delete if link
+        DBConnection.instance.execute(<<-SQL)
+            DELETE FROM
+                jobs
+            WHERE
+                id = self.id
         SQL
     end
 
@@ -115,5 +145,4 @@ class Job
     def link 
         Link.find_by_job_id(self.id)
     end
-
 end

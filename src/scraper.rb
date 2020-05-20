@@ -1,17 +1,19 @@
 require 'nokogiri'
 require 'httparty'
 require 'open-uri'
+require 'open_uri_redirections'
+require_relative 'parser'
 
 TARGETS = {
-    'jobCard' = 'div.jobsearch-SerpJobCard',
-    'num_jobs' = 'div.searchCountContainer',
-    'link' = 'h2.title',
-    'indeed_resume' = 'div.icl-u-lg-hide',
-    'apply_link' = 'div.icl-u-lg-hide',
-    'title' = 'h3.icl-u-xs-mb--xs.icl-u-xs-mt--none.jobsearch-JobInfoHeader-title',
-    'company_name' = 'div.jobsearch-InlineCompanyRating.icl-u-xs-mt--xs.jobsearch-DesktopStickyContainer-companyrating',
-    'location' = 'div.jobsearch-InlineCompanyRating.icl-u-xs-mt--xs.jobsearch-DesktopStickyContainer-companyrating',
-    'description' = 'div.jobsearch-jobDescriptionText'
+    'jobCard' => 'div.jobsearch-SerpJobCard',
+    'num_jobs' => 'div.searchCountContainer',
+    'link' => 'h2.title',
+    'indeed_resume' => 'div.icl-u-lg-hide',
+    'apply_link' => 'div.icl-u-lg-hide',
+    'title' => 'h3.icl-u-xs-mb--xs.icl-u-xs-mt--none.jobsearch-JobInfoHeader-title',
+    'company_name' => 'div.jobsearch-InlineCompanyRating.icl-u-xs-mt--xs.jobsearch-DesktopStickyContainer-companyrating',
+    'location' => 'div.jobsearch-InlineCompanyRating.icl-u-xs-mt--xs.jobsearch-DesktopStickyContainer-companyrating',
+    'description' => 'div.jobsearch-jobDescriptionText'
 }
 
 URL_BASE = 'https://www.indeed.com/jobs?q='
@@ -24,7 +26,7 @@ class Scraper
     end
 
     def run
-        link = URL_BASE + search_term + URL_END
+        link = URL_BASE + @search_term + URL_END
         scrape_search(link)
     end
 
@@ -32,7 +34,7 @@ class Scraper
 
     def scrape_search(link)
         num_jobs = get_num_jobs(link)
-        (0...num_jobs/10).times do |i|
+        (0...num_jobs/10).each do |i|
             url = link + (i*10).to_s
             jobCards = get_cards(url)
             jobCards.each {|jobCard| scrape_card(jobCard)}
@@ -63,16 +65,17 @@ class Scraper
 
         job['title'] = scrape_title(page)
         job['description'] = scrape_description(page)
-        job['indeed_apply'] = scrape_indeed_resume?(page)
+        job['indeed_resume'] = scrape_indeed_resume?(page)
+        job['location'] = scrape_location(page)
 
-        if job['indeed_apply']
+        if job['indeed_resume'] == 1
             link['apply_link'] = link['listing_link']
         else  
             link['apply_link'] = scrape_apply_link(page)
         end
 
         company['name'] = scrape_company_name(page)
-        company['loc'] = scrape_location(page)
+        Parser.instance.execute(job, company, link)
     end
 
     def scrape_link(jobCard)
@@ -83,6 +86,11 @@ class Scraper
     def scrape_apply_link(page)
         container = page.css(TARGETS['apply_link']).children[1]
         container['href']
+    end
+
+    def scrape_indeed_resume?(page)
+        container = page.css('div.icl-u-lg-hide').children[1]
+        container.name == "button" ? 1 : 0
     end
 
     def scrape_title(page)
@@ -111,7 +119,7 @@ class Scraper
     end
 
     def catch_redirect(link)
-        resp = open(link)
+        resp = open(link, :allow_redirections => :all)
         dest = resp.base_uri.to_s
         return dest if dest == link 
         catch_redirect(dest)
